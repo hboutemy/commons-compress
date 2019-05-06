@@ -27,6 +27,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -119,6 +120,31 @@ public class ScatterZipOutputStream implements Closeable {
         }
     }
 
+    // TODO: change these fields to a Closeable (for the stream) and Iterator inner class returned
+    // by method renamed to something like writeIterator()
+    private Iterator<CompressedEntry> itemsIterator = null;
+    private InputStream itemsIteratorData = null;
+    /**
+     * Write the next zip entry of this scatter stream to a target archive.
+     *
+     * @param target The archive to receive the next entry of this {@link ScatterZipOutputStream}.
+     * @throws IOException If writing fails
+     */
+    public void writeNextEntryTo(final ZipArchiveOutputStream target) throws IOException {
+        if (itemsIterator == null) {
+            backingStore.closeForWriting();
+            itemsIterator = items.iterator();
+            itemsIteratorData = backingStore.getInputStream();
+        }
+        if (itemsIterator.hasNext()) {
+            CompressedEntry compressedEntry = itemsIterator.next();
+            try (final BoundedInputStream rawStream = new BoundedInputStream(itemsIteratorData, compressedEntry.compressedSize)) {
+                target.addRawArchiveEntry(compressedEntry.transferToArchiveEntry(), rawStream);
+            }
+        } else {
+            itemsIteratorData.close();
+        }
+    }
 
     /**
      * Closes this stream, freeing all resources involved in the creation of this stream.

@@ -145,7 +145,7 @@ public class ParallelScatterZipCreatorTest {
                     return new ByteArrayInputStream(payloadBytes);
                 }
             };
-            final Callable<Object> callable;
+            final Callable<ScatterZipOutputStream> callable;
             if (i % 2 == 0) {
                 callable = zipCreator.createCallable(za, iss);
             } else {
