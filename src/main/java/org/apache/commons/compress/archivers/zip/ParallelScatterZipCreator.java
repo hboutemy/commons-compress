@@ -41,6 +41,11 @@ import static org.apache.commons.compress.archivers.zip.ZipArchiveEntryRequest.c
 /**
  * Creates a zip in parallel by using multiple threadlocal {@link ScatterZipOutputStream} instances.
  * <p>
+ * Note that until 1.18, this class generally made no guarantees about the order of things written to
+ * the output file. Things that needed to come in a specific order (manifests, directories)
+ * had to be handled by the client of this class, usually by writing these things to the
+ * {@link ZipArchiveOutputStream} <em>before</em> calling {@link #writeTo writeTo} on this class.</p>
+ * <p>
  * The client can supply an {@link java.util.concurrent.ExecutorService}, but for reasons of
  * memory model consistency, this will be shut down by this class prior to completion.
  * </p>
@@ -255,7 +260,7 @@ public class ParallelScatterZipCreator {
                 // write zip entries in the order they were added (kept as futures)
                 for (final Future<ScatterZipOutputStream> future : futures) {
                     ScatterZipOutputStream scatterStream = future.get();
-                    scatterStream.writeNextEntryTo(targetStream);
+                    scatterStream.zipEntryWriter(targetStream).writeNextZipEntry();
                 }
 
                 for (final ScatterZipOutputStream scatterStream : streams) {

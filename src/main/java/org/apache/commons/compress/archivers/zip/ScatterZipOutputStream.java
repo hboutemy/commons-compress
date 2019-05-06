@@ -52,6 +52,7 @@ public class ScatterZipOutputStream implements Closeable {
     private final ScatterGatherBackingStore backingStore;
     private final StreamCompressor streamCompressor;
     private AtomicBoolean isClosed = new AtomicBoolean();
+    private ZipEntryWriter zipEntryWriter = null;
 
     private static class CompressedEntry {
         final ZipArchiveEntryRequest zipArchiveEntryRequest;
@@ -107,6 +108,7 @@ public class ScatterZipOutputStream implements Closeable {
      *
      * @param target The archive to receive the contents of this {@link ScatterZipOutputStream}.
      * @throws IOException If writing fails
+     * @see #zipEntryWriter(ZipArchiveOutputStream)
      */
     public void writeTo(final ZipArchiveOutputStream target) throws IOException {
         backingStore.closeForWriting();
@@ -120,30 +122,44 @@ public class ScatterZipOutputStream implements Closeable {
         }
     }
 
-    // TODO: change these fields to a Closeable (for the stream) and Iterator inner class returned
-    // by method renamed to something like writeIterator()
-    private Iterator<CompressedEntry> itemsIterator = null;
-    private InputStream itemsIteratorData = null;
-    /**
-     * Write the next zip entry of this scatter stream to a target archive.
-     *
-     * @param target The archive to receive the next entry of this {@link ScatterZipOutputStream}.
-     * @throws IOException If writing fails
-     */
-    public void writeNextEntryTo(final ZipArchiveOutputStream target) throws IOException {
-        if (itemsIterator == null) {
-            backingStore.closeForWriting();
-            itemsIterator = items.iterator();
-            itemsIteratorData = backingStore.getInputStream();
+    public static class ZipEntryWriter implements Closeable {
+        private final Iterator<CompressedEntry> itemsIterator;
+        private final InputStream itemsIteratorData;
+        private final ZipArchiveOutputStream target;
+
+        public ZipEntryWriter(ZipArchiveOutputStream target, ScatterZipOutputStream scatter) throws IOException {
+            scatter.backingStore.closeForWriting();
+            this.target = target;
+            itemsIterator = scatter.items.iterator();
+            itemsIteratorData = scatter.backingStore.getInputStream();
         }
-        if (itemsIterator.hasNext()) {
+
+        @Override
+        public void close() throws IOException {
+            if (itemsIteratorData != null) {
+                itemsIteratorData.close();
+            }
+        }
+
+        public void writeNextZipEntry() throws IOException {
             CompressedEntry compressedEntry = itemsIterator.next();
             try (final BoundedInputStream rawStream = new BoundedInputStream(itemsIteratorData, compressedEntry.compressedSize)) {
                 target.addRawArchiveEntry(compressedEntry.transferToArchiveEntry(), rawStream);
             }
-        } else {
-            itemsIteratorData.close();
         }
+    }
+
+    /**
+     * Get a zip entry writer to a target archive for this scatter stream.
+     *
+     * @param target The archive to receive the zip entries of this {@link ScatterZipOutputStream}.
+     * @throws IOException If getting scatter stream input stream
+     */
+    public ZipEntryWriter zipEntryWriter(final ZipArchiveOutputStream target) throws IOException {
+        if (zipEntryWriter == null) {
+            zipEntryWriter = new ZipEntryWriter(target, this);
+        }
+        return zipEntryWriter;
     }
 
     /**
@@ -156,6 +172,9 @@ public class ScatterZipOutputStream implements Closeable {
             return;
         }
         try {
+            if (zipEntryWriter != null) {
+                zipEntryWriter.close();
+            }
             backingStore.close();
         } finally {
             streamCompressor.close();
